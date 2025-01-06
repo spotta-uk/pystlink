@@ -2,6 +2,9 @@ import usb.core
 import usb.util
 import lib.stlinkex
 import re
+from typing import Union
+from base64 import b32encode
+from hashlib import sha1
 
 
 class StlinkUsbConnector():
@@ -47,6 +50,24 @@ class StlinkUsbConnector():
         }
     ]
 
+    def _generate_device_unique_id(self,vid: int, pid: int, *locations: Union[int, str]) -> str:
+        """@brief Generate a semi-stable unique ID from USB device properties.
+
+        This function is intended to be used in cases where a device does not provide a serial number
+        string. pyocd still needs a valid unique ID so the device can be selected from amongst multiple
+        connected devices. The algorithm used here generates an ID that is stable for a given device as
+        long as it is connected to the same USB port.
+
+        @param vid Vendor ID.
+        @param pid Product ID.
+        @param locations Additional parameters are expected to be int or string values that represent
+            parts of the bus location to which the device is connected. At least one location parameter
+            must be provided.
+        @return Unique ID string generated from parameeters.
+        """
+        s = f"{vid:4x},{pid:4x}," + ",".join(str(locations))
+        return b32encode(sha1(s.encode()).digest()).decode('ascii')
+    
     def _get_serial(self):
         # The signature for get_string has changed between versions to 1.0.0b1,
         # 1.0.0b2 and 1.0.0. Try the old signature first, if that fails try
@@ -54,7 +75,7 @@ class StlinkUsbConnector():
         try:
             serial = usb.util.get_string(self._dev, 255, self._dev.iSerialNumber)
         except (usb.core.USBError, ValueError):
-            serial = usb.util.get_string(self._dev, self._dev.iSerialNumber)
+            serial = self._generate_device_unique_id(self._dev.idProduct, self._dev.idVendor, self._dev.bus, self._dev.address)
         if serial != None:
             if re.search("[0-9a-fA-f]+", serial).span()[1] != 24:
                 serial = ''.join(["%.2x" % ord(c) for c in list(serial)])
